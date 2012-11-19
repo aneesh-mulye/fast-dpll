@@ -1,8 +1,8 @@
 typedef int literal_t;
 
 typedef enum {
-	TRUE,
 	FALSE,
+	TRUE,
 	UNDEF
 } value_t;
 
