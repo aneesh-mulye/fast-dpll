@@ -1,0 +1,20 @@
+Code organisation:
+
+The solver's internal structures are built around the DIMACS format; it's used
+natively for speed.
+
+The code is mostly self-explanatory: `pp' is pretty-printing, `init' are
+constructors, `assign' refer to single assignments, and `assignment' to
+multiple assignments.
+
+The data structures are the clause, the formula, and a reversal structure
+(which allows one to *undo* the effects of an assignment). This is created at
+the same time that an assignment is done; order must be maintained for
+reversibility.
+
+dpll_inner is the primary function; the externally callable `dpll' is a
+convenience wrapper around it. pureliterals and unitclauses are the base
+heuristics of the algorithm itself.
+
+Note that issat and isunsat are early-termination heuristics; they could
+both be simultaneously true.

@@ -24,6 +24,7 @@ typedef struct {
 
 int init_clause(clause_t *, unsigned int);
 int init_cnfform(cnfform_t *, unsigned int, unsigned int);
+int init_3cnfform_file(cnfform_t *, char *);
 
 void pp_cnfform(cnfform_t *);
 void pp_clause(clause_t *);
@@ -33,14 +34,19 @@ int partial_assign(cnfform_t *, literal_t, reversal_t *);
 int partial_assignment(cnfform_t *, literal_t *, unsigned int, reversal_t **);
 int reverse_assign(cnfform_t *, reversal_t *);
 int reverse_assignment(cnfform_t *, reversal_t *, unsigned int);
+int cleanrev(reversal_t *);
 
 int inclause(literal_t, clause_t *);
 int swapout(int, clause_t *);
 int haslit(cnfform_t *, literal_t);
+int issat(cnfform_t *);
+int isunsat(cnfform_t *);
 
 int unitclauses(cnfform_t *, literal_t **, unsigned int *);
 int pureliterals(cnfform_t *, literal_t **, unsigned int *);
 
 int dpll_inner(cnfform_t *, literal_t **, unsigned int);
 int dpll(cnfform_t *, literal_t **);
+
+int heuristic(cnfform_t *, literal_t *);
 #endif

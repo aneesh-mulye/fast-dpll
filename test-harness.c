@@ -1,5 +1,6 @@
 #include "dpll.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 
 int main_formula() {
@@ -182,7 +183,115 @@ int main_pureliterals() {
 	return 0;
 }
 
-int main() {
+int main_dpll() {
 
-	return main_pureliterals();
+	int i, j, result, lits = 3;
+	cnfform_t f;
+	literal_t *final = 0;
+
+	init_cnfform(&f, 10, 10);
+
+	for(i=0; i < f.num_clauses; i++)
+		init_clause(f.clauses+i, lits);
+
+	for(i=0; i < f.num_clauses; i++)
+		for(j=0; j<lits; j++)
+			f.clauses[i].lits[j] = (i*lits + j)%10 + 1;
+
+	for(i=0; i < f.num_vars; i++)
+		f.vars[i] = i+1;
+
+	pp_cnfform(&f);
+
+	result = dpll(&f, &final);
+
+	printf("DPLL result: %d\n", result);
+	if(!final) {
+		printf("'final' not assigned.\n");
+	}
+	else {
+		for(i=0; i < 10; i++)
+			printf("%d ", final[i]);
+		printf("\n");
+	}
+	
+	free(final);
+	pp_cnfform(&f);
+
+	return 0;
+}
+
+int main_dpll_fail() {
+
+	int i, j, result, lits = 1;
+	cnfform_t f;
+	literal_t *final = 0;
+
+	init_cnfform(&f, 1, 2);
+
+	for(i=0; i < f.num_clauses; i++)
+		init_clause(f.clauses+i, lits);
+
+	f.clauses[0].lits[0] = 1;
+	f.clauses[1].lits[0] = -1;
+
+	for(i=0; i < f.num_vars; i++)
+		f.vars[i] = i+1;
+
+	pp_cnfform(&f);
+
+	result = dpll(&f, &final);
+
+	printf("DPLL result: %d\n", result);
+	if(!final) {
+		printf("'final' not assigned.\n");
+	}
+	else {
+		for(i=0; i < f.num_vars; i++)
+			printf("%d ", final[i]);
+		printf("\n");
+	}
+	
+	free(final);
+	pp_cnfform(&f);
+
+	return 0;
+}
+
+int main_dpll_file(int argc, char **argv) {
+
+	int i, j, result, lits = 1;
+	cnfform_t f; literal_t *final = 0; 
+	if(argc < 2) {
+		printf("Insufficient arguments: specify path.\n");
+		return 0;
+	}
+
+	init_3cnfform_file(&f, argv[1]);
+
+	pp_cnfform(&f);
+
+	result = dpll(&f, &final);
+
+	printf("DPLL result: %d\n", result);
+	if(!final) {
+		printf("'final' not assigned.\n");
+	}
+	else {
+		for(i=0; i < f.num_vars; i++)
+			printf("%d ", final[i]);
+		printf("\n");
+	}
+	
+	free(final);
+	pp_cnfform(&f);
+
+	return 0;
+
+
+}
+
+int main(int argc, char **argv) {
+
+	return main_dpll_file(argc, argv);
 }

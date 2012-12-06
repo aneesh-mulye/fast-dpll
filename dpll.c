@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define DEBUG
 void pp_clause(clause_t * c) {
 
 	int i;
@@ -137,6 +138,13 @@ int partial_assign(cnfform_t * formula, literal_t lit, reversal_t * r) {
 	orignum = formula->num_clauses;
 	for(i = 0; i < orignum; i++)
 		if(-1 < (lp = inclausep(lit, formula->clauses + first))) {
+#ifdef DEBUG
+			printf("Switching %d ", first);
+			pp_clause(formula->clauses+first);
+			printf(" with %d ", last);
+			pp_clause(formula->clauses+last);
+			printf("\n");
+#endif
 			/* Switch the clauses... */
 			tempclause = formula->clauses[first];
 			formula->clauses[first] = formula->clauses[last];
@@ -151,21 +159,24 @@ int partial_assign(cnfform_t * formula, literal_t lit, reversal_t * r) {
 
 			last--;
 		} else if(-1 < (lp = inclausep(-lit, formula->clauses+first))){
-			/* Switch the clauses... */
+			/* Switch the clauses... 
 			tempclause = formula->clauses[first];
 			formula->clauses[first] = formula->clauses[last];
 			formula->clauses[last] = tempclause;
+			*/
 			/* ...swap the literals in the clause... */
-			swapout(lp, formula->clauses+last);
+			swapout(lp, formula->clauses+first);
 			/* ...record the swap... */
+			/*
 			temprev.swaps1[i] = first;
 			temprev.swaps2[i] = last;
+			*/
 			/* ...and record what you just did in the reversal
 			 * list.
 			 */
-			temprev.inc_clauses[last] = 1;
+			temprev.inc_clauses[first] = 1;
 
-			last--;
+			first++;
 		}
 		else {
 			first++;
@@ -302,7 +313,8 @@ int haslit(cnfform_t * formula, literal_t lit) {
 int unitclauses(cnfform_t * formula, literal_t ** flits,
 		unsigned int * num_lits) {
 
-	unsigned int num_forced = 0, i;
+	unsigned int num_forced = 0, i, j, consistent;
+	literal_t *temp_flits;
 
 	if(!formula || !flits || !num_lits)
 		return -1;
@@ -311,20 +323,57 @@ int unitclauses(cnfform_t * formula, literal_t ** flits,
 		if(1 == formula->clauses[i].num_lits)
 			num_forced++;
 
+#ifdef DEBUG
+	if(!num_forced)
+		printf("No unit clauses.\n");
+#endif
 	if(!num_forced)
 		return 0;
 
-	*flits = malloc(sizeof(literal_t)*num_forced);
-	if(!*flits)
+	temp_flits = malloc(sizeof(literal_t)*num_forced);
+	if(!temp_flits)
 		return -1;
 
-	*num_lits = num_forced;
+	/* *num_lits = num_forced; */
 	num_forced = 0;
 
 	for(i=0; i<formula->num_clauses; i++)
 		if(1 == formula->clauses[i].num_lits)
-			(*flits)[num_forced++] = formula->clauses[i].lits[0];
+			temp_flits[num_forced++] = formula->clauses[i].lits[0];
 
+	/* Make this a consistent assignment; no self-conflicting
+	 * assignments are allowed.
+	 */
+
+	for(i=0; i < num_forced; i++)
+		for(j=i+1; j < num_forced; j++)
+			if(temp_flits[i] == temp_flits[j] ||
+					temp_flits[i] == -temp_flits[j])
+				temp_flits[j] = 0;
+
+	consistent = 0;
+	for(i=0; i<num_forced; i++)
+		if(temp_flits[i])
+			consistent++;
+	*flits = (literal_t *) malloc(j*sizeof(literal_t));
+	if(!*flits) {
+		free(temp_flits);
+		return -1;
+	}
+	*num_lits = consistent;
+	j = 0;
+	for(i=0; i<num_forced; i++)
+		if(temp_flits[i])
+			(*flits)[j++] = temp_flits[i];
+
+	free(temp_flits);
+
+#ifdef DEBUG
+	printf("%d unit clauses: ", j);
+	for(i = 0; i<j; i++)
+		printf("%d ", (*flits)[i]);
+	printf("\n");
+#endif
 	return 0;
 }
 
@@ -353,6 +402,16 @@ int pureliterals(cnfform_t * formula, literal_t ** plits,
 		for(j=0; j < formula->clauses[i].num_lits; j++) {
 			tempind = haslit(formula,
 					formula->clauses[i].lits[j]);
+#ifdef DEBUG
+			if(-1 == tempind) {
+				printf("PROBLEM on %d at index %d, %d!\n",
+						formula->clauses[i].lits[j],
+						i, j);
+				pp_cnfform(formula);
+				pp_clause(formula->clauses+i);
+				printf("\n");
+			}
+#endif
 			if(0 == status[tempind]) {
 				values[tempind] =
 				   (formula->clauses[i].lits[j] > 0) ? 1 : -1;
@@ -384,13 +443,226 @@ int pureliterals(cnfform_t * formula, literal_t ** plits,
 
 	free(status);
 	free(values);
-
+#ifdef DEBUG
+	printf("%d pure literals: ", num_pure);
+	for(i = 0; i<num_pure; i++)
+		printf("%d ", (*plits)[i]);
+	printf("\n");
+#endif
 	return 0;
 }
 
 int dpll_inner(cnfform_t * formula, literal_t **assignment,
-		unsigned int * assigned) {
+		unsigned int assigned) {
 
+	literal_t *plit = 0, *uclause = 0, heur = 0;
+	reversal_t *purerev = 0, *unitrev = 0, heurrev;
+	unsigned int pureadv = 0, unitadv = 0;
+	int tempresult = 0, i = 0, heurresult = 0;
+	int baseheurwork = 0;
 	if(!formula || !assignment)
 		return -1;
+
+	if(!assigned) {
+		*assignment = malloc((sizeof(literal_t)*formula->num_vars));
+		if(!*assignment)
+			return -1;
+	}
+
+#ifdef DEBUG
+	pp_cnfform(formula);
+#endif
+	/* Check if it turns out that we're at the end of the chain;
+	 * allows for `blind calls'.
+	 */
+	if(1 == issat(formula))
+		return 1;
+	if(1 == isunsat(formula))
+		return 0;
+
+	/* First the pure literals. */
+	pureliterals(formula, &plit, &pureadv);
+	if(pureadv) {
+		baseheurwork = 1;
+		partial_assignment(formula, plit, pureadv, &purerev);
+		for(i=0; i<pureadv; i++)
+			(*assignment)[assigned++] = plit[i];
+	}
+	unitclauses(formula, &uclause, &unitadv);
+	if(unitadv) {
+		baseheurwork = 1;
+		partial_assignment(formula, uclause, unitadv, &unitrev);
+		for(i=0; i<unitadv; i++)
+			(*assignment)[assigned++] = uclause[i];
+	}
+#ifdef DEBUG
+	if(1 == unitadv)
+		pp_reversal(unitrev, formula->num_clauses+unitrev[0].ext_clauses);
+#endif
+
+	/* Not required again - free now. */
+	if(plit) free(plit);
+	if(uclause) free(uclause);
+
+	if(1 == baseheurwork) {
+		/* Continue the unit clause cascade. */
+		tempresult = dpll_inner(formula, assignment, assigned);
+		assigned -= (unitadv + pureadv);
+		if(unitadv)
+			reverse_assignment(formula, unitrev, unitadv);
+		if(pureadv)
+			reverse_assignment(formula, purerev, pureadv);
+		for(i=0; i<pureadv; i++)
+			cleanrev(purerev+i);
+		for(i=0; i<unitadv; i++)
+			cleanrev(unitrev+i);
+		free(purerev);
+		free(unitrev);
+		return tempresult;
+	}
+
+	/* The basic heuristics turned up empty.
+	 * Recurse. Using the custom heuristic. */
+	if(-1 == heuristic(formula, &heur))
+		return -1;
+	/* First, try the heuristic value. */
+	partial_assign(formula, heur, &heurrev);
+	(*assignment)[assigned++] = heur;
+	heurresult = dpll_inner(formula, assignment, assigned);
+	if(-1 == heurresult)
+		return -1;
+	if(1 == heurresult) {
+		/* It worked! Let's free all the reversals and return. */
+		reverse_assign(formula, &heurrev);
+		if(unitadv)
+			reverse_assignment(formula, unitrev, unitadv);
+		if(pureadv)
+			reverse_assignment(formula, purerev, pureadv);
+		for(i=0; i<pureadv; i++)
+			cleanrev(purerev+i);
+		for(i=0; i<unitadv; i++)
+			cleanrev(unitrev+i);
+		cleanrev(&heurrev);
+		free(purerev);
+		free(unitrev);
+		return 1;
+	}
+	/* Didn't work. Reverse... */
+	reverse_assign(formula, &heurrev);
+	cleanrev(&heurrev);
+	assigned--;
+	/* ...and try the other one. */
+	partial_assign(formula, -heur, &heurrev);
+	(*assignment)[assigned++] = heur;
+	heurresult = dpll_inner(formula, assignment, assigned);
+	if(-1 == heurresult)
+		return -1;
+	/* Reverse all things - IN REVERSE ORDER - and return. */
+	reverse_assign(formula, &heurrev);
+	if(unitadv)
+		reverse_assignment(formula, unitrev, unitadv);
+	if(pureadv)
+		reverse_assignment(formula, purerev, pureadv);
+
+	for(i=0; i<pureadv; i++)
+		cleanrev(purerev+i);
+	for(i=0; i<unitadv; i++)
+		cleanrev(unitrev+i);
+	cleanrev(&heurrev);
+	free(purerev);
+	free(unitrev);
+
+	return heurresult;
+}
+
+int issat(cnfform_t * formula) {
+
+	if(!formula)
+		return -1;
+
+	if(0 == formula->num_clauses)
+		return 1;
+
+	return 0;
+}
+
+int isunsat(cnfform_t * formula) {
+
+	int i;
+
+	if(!formula)
+		return -1;
+
+	for(i=0; i<formula->num_clauses; i++)
+		if(0 == formula->clauses[i].num_lits)
+			return 1;
+
+	return 0;
+}
+
+int cleanrev(reversal_t * rev) {
+
+	if(!rev)
+		return -1;
+
+	free(rev->inc_clauses);
+	free(rev->swaps1);
+	free(rev->swaps2);
+
+	return 0;
+}
+
+int heuristic(cnfform_t * formula, literal_t * heur) {
+
+	if(!formula || !heur)
+		return -1;
+
+	*heur = formula->vars[0];
+
+	return 0;
+}
+
+int dpll(cnfform_t *formula, literal_t ** assignment) {
+
+	return dpll_inner(formula, assignment, 0);
+}
+
+int init_3cnfform_file(cnfform_t * formula, char *path) {
+
+	FILE *inf;
+	char abc[81], j1[10], j2[10];
+	int vars, clauses, i = 0;
+	literal_t l1, l2, l3;
+
+	if(!formula || !path)
+		return -1;
+
+	inf = fopen(path, "r");
+
+	while(!feof(inf)) {
+		fgets(abc, 81, inf);
+		if('p' == abc[0]) {
+			/* Specifier; init the formula. */
+			sscanf(abc, "%s %s %d %d", j1, j2, &vars, &clauses);
+			init_cnfform(formula, vars, clauses);
+			/* And the vars. */
+			for(i = 0; i<formula->num_vars; i++)
+				formula->vars[i]= i+1;
+			for(i=0; i<formula->num_clauses; i++)
+				init_clause(formula->clauses + i, 3);
+			i = 0;
+		}
+		if('-' == abc[0] || isdigit(abc[0]) || ' ' == abc[0]) {
+			/* Clause; put it into the formula. */
+			sscanf(abc, "%d %d %d", formula->clauses[i].lits,
+					formula->clauses[i].lits+1,
+					formula->clauses[i].lits+2);
+			i++;
+		}
+		if('%' == abc[0])
+			break;
+	}
+
+	fclose(inf);
+
 }
