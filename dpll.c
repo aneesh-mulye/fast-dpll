@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define DEBUG
 void pp_clause(clause_t * c) {
 
 	int i;
